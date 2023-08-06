@@ -12,6 +12,7 @@
 #include <string>
 #include <fstream>
 #include <vector>
+#include <functional>
 
 #include "vulkan/vulkan.h"
 #include "VulkanDevice.h"
@@ -78,6 +79,7 @@ namespace vkglTF
 		float alphaCutoff = 1.0f;
 		float metallicFactor = 1.0f;
 		float roughnessFactor = 1.0f;
+		bool doubleSided = false;
 		glm::vec4 baseColorFactor = glm::vec4(1.0f);
 		vkglTF::Texture* baseColorTexture = nullptr;
 		vkglTF::Texture* metallicRoughnessTexture = nullptr;
@@ -89,6 +91,7 @@ namespace vkglTF
 		vkglTF::Texture* diffuseTexture;
 
 		VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+		VkPipeline      pipeline      = VK_NULL_HANDLE;
 
 		Material(vks::VulkanDevice* device) : device(device) {};
 		void createDescriptorSet(VkDescriptorPool descriptorPool, VkDescriptorSetLayout descriptorSetLayout, uint32_t descriptorBindingFlags);
@@ -243,6 +246,23 @@ namespace vkglTF
 		RenderAlphaBlendedNodes = 0x00000008
 	};
 
+
+	struct DrawCallCallback
+	{
+		std::function<bool(Node*            node,
+						   VkCommandBuffer  commandBuffer,
+						   VkPipelineLayout pipelineLayout)>
+			onDrawNode;
+		std::function<bool(Mesh*            mesh,
+						   VkCommandBuffer  commandBuffer,
+						   VkPipelineLayout pipelineLayout)>
+			onDrawMesh;
+		std::function<bool(Primitive*       primitive,
+						   VkCommandBuffer  commandBuffer,
+						   VkPipelineLayout pipelineLayout)>
+			onDrawPrimitive;
+	};
+
 	/*
 		glTF model loading and rendering class
 	*/
@@ -286,18 +306,23 @@ namespace vkglTF
 		bool metallicRoughnessWorkflow = true;
 		bool buffersBound = false;
 		std::string path;
+		DrawCallCallback drawCallback;
 
 		Model() {};
 		~Model();
+
+	public:
+		void loadFromFile(std::string filename, vks::VulkanDevice* device, VkQueue transferQueue, uint32_t fileLoadingFlags = vkglTF::FileLoadingFlags::None, float scale = 1.0f);
+		void bindBuffers(VkCommandBuffer commandBuffer);
+		void draw(VkCommandBuffer commandBuffer, uint32_t renderFlags = 0, VkPipelineLayout pipelineLayout = VK_NULL_HANDLE, uint32_t bindImageSet = 1);
+		void setCallback(const DrawCallCallback& callback);
+	private:
 		void loadNode(vkglTF::Node* parent, const tinygltf::Node& node, uint32_t nodeIndex, const tinygltf::Model& model, std::vector<uint32_t>& indexBuffer, std::vector<Vertex>& vertexBuffer, float globalscale);
 		void loadSkins(tinygltf::Model& gltfModel);
 		void loadImages(tinygltf::Model& gltfModel, vks::VulkanDevice* device, VkQueue transferQueue);
 		void loadMaterials(tinygltf::Model& gltfModel);
 		void loadAnimations(tinygltf::Model& gltfModel);
-		void loadFromFile(std::string filename, vks::VulkanDevice* device, VkQueue transferQueue, uint32_t fileLoadingFlags = vkglTF::FileLoadingFlags::None, float scale = 1.0f);
-		void bindBuffers(VkCommandBuffer commandBuffer);
 		void drawNode(Node* node, VkCommandBuffer commandBuffer, uint32_t renderFlags = 0, VkPipelineLayout pipelineLayout = VK_NULL_HANDLE, uint32_t bindImageSet = 1);
-		void draw(VkCommandBuffer commandBuffer, uint32_t renderFlags = 0, VkPipelineLayout pipelineLayout = VK_NULL_HANDLE, uint32_t bindImageSet = 1);
 		void getNodeDimensions(Node* node, glm::vec3& min, glm::vec3& max);
 		void getSceneDimensions();
 		void updateAnimation(uint32_t index, float time);

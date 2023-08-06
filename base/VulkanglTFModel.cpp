@@ -16,7 +16,7 @@
 VkDescriptorSetLayout vkglTF::descriptorSetLayoutImage = VK_NULL_HANDLE;
 VkDescriptorSetLayout vkglTF::descriptorSetLayoutUbo = VK_NULL_HANDLE;
 VkMemoryPropertyFlags vkglTF::memoryPropertyFlags = 0;
-uint32_t vkglTF::descriptorBindingFlags = vkglTF::DescriptorBindingFlags::ImageBaseColor;
+uint32_t vkglTF::descriptorBindingFlags = vkglTF::DescriptorBindingFlags::ImageBaseColor | vkglTF::DescriptorBindingFlags::ImageNormalMap;
 
 /*
 	We use a custom image loading function with tinyglTF, so we can do custom stuff loading ktx textures
@@ -528,8 +528,9 @@ glm::mat4 vkglTF::Node::getMatrix() {
 void vkglTF::Node::update() {
 	if (mesh) {
 		glm::mat4 m = getMatrix();
+		mesh->uniformBlock.matrix = m;
+
 		if (skin) {
-			mesh->uniformBlock.matrix = m;
 			// Update join matrices
 			glm::mat4 inverseTransform = glm::inverse(m);
 			for (size_t i = 0; i < skin->joints.size(); i++) {
@@ -1043,6 +1044,7 @@ void vkglTF::Model::loadMaterials(tinygltf::Model &gltfModel)
 		if (mat.additionalValues.find("alphaCutoff") != mat.additionalValues.end()) {
 			material.alphaCutoff = static_cast<float>(mat.additionalValues["alphaCutoff"].Factor());
 		}
+		material.doubleSided = mat.doubleSided;
 
 		materials.push_back(material);
 	}
@@ -1415,8 +1417,25 @@ void vkglTF::Model::bindBuffers(VkCommandBuffer commandBuffer)
 
 void vkglTF::Model::drawNode(Node *node, VkCommandBuffer commandBuffer, uint32_t renderFlags, VkPipelineLayout pipelineLayout, uint32_t bindImageSet)
 {
+	if (drawCallback.onDrawNode  && !drawCallback.onDrawNode(node, commandBuffer, pipelineLayout))
+	{
+		return;
+	}
+
 	if (node->mesh) {
+
+		if (drawCallback.onDrawMesh  && !drawCallback.onDrawMesh(node->mesh, commandBuffer, pipelineLayout))
+		{
+			return;
+		}
+
 		for (Primitive* primitive : node->mesh->primitives) {
+
+			if (drawCallback.onDrawPrimitive && !drawCallback.onDrawPrimitive(primitive, commandBuffer, pipelineLayout))
+			{
+				continue;
+			}
+
 			bool skip = false;
 			const vkglTF::Material& material = primitive->material;
 			if (renderFlags & RenderFlags::RenderOpaqueNodes) {
@@ -1451,6 +1470,11 @@ void vkglTF::Model::draw(VkCommandBuffer commandBuffer, uint32_t renderFlags, Vk
 	for (auto& node : nodes) {
 		drawNode(node, commandBuffer, renderFlags, pipelineLayout, bindImageSet);
 	}
+}
+
+void vkglTF::Model::setCallback(const DrawCallCallback& callback)
+{
+	drawCallback = callback;
 }
 
 void vkglTF::Model::getNodeDimensions(Node *node, glm::vec3 &min, glm::vec3 &max)
